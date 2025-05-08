@@ -1,27 +1,32 @@
 #!/usr/bin/env python3
+import os
 
 from azure.cosmos import CosmosClient
+from dotenv import load_dotenv
 
 from langflow.custom import Component
-from langflow.io import MessageTextInput, Output, SecretStrInput
+from langflow.io import MessageTextInput, Output
 from langflow.schema import Data
+
+load_dotenv()
+
+BASE_URL = os.getenv("COSMOS_ENDPOINT")
+API_KEY = os.getenv("COSMOS_KEY")
+
+if not BASE_URL or not API_KEY:
+    msg = "COSMOS_ENDPOINT and COSMOS_KEY must be set in environment variables."
+    raise OSError(msg)
 
 
 class AzureCosmoDBClient(Component):
+    """Custom Component to get data from Azure CosmosDB."""
+
     display_name = "Azure CosmosDB"
-    description = "Custom Component to get data from Azure CosmosD."
+    description = "Custom Component to get data from Azure CosmosDB."
     icon = "Azure"
     name = "AzureCosmosDBClient"
 
     inputs = [
-        MessageTextInput(
-            name="account_uri",
-            display_name="Account URI",
-            value="Account URI",
-            info="Your Azure Account URI, Example: `https://example-resource.azure.com/port_numer`",
-            required=True,
-        ),
-        SecretStrInput(name="account_api_key", display_name="Account API Key", required=True),
         MessageTextInput(
             name="database_name",
             value="Database Name",
@@ -36,6 +41,20 @@ class AzureCosmoDBClient(Component):
             info="Your Azure CosmosDB database container name.",
             required=True,
         ),
+        MessageTextInput(
+            name="offset",
+            value="1",
+            display_name="Offset",
+            info="Query offset (default: 1).",
+            required=False,
+        ),
+        MessageTextInput(
+            name="limit",
+            value="10",
+            display_name="Limit",
+            info="Query limit (default: 10).",
+            required=False,
+        ),
     ]
 
     outputs = [
@@ -43,13 +62,19 @@ class AzureCosmoDBClient(Component):
     ]
 
     def build_output(self) -> Data:
-        client = CosmosClient(self.account_uri, credential=self.account_api_key)
-        database = client.get_database_client(self.database_name)
-        container = database.get_container_client(self.container_name)
-        query = "SELECT c.id, c.pageContent FROM c OFFSET @offset LIMIT @limit"
-        parameters = [
-            {"name": "@offset", "value": 1},
-            {"name": "@limit", "value": 10},
-        ]
-        items = list(container.query_items(query=query, parameters=parameters, enable_cross_partition_query=True))
-        return Data(value=items)
+        """Query CosmosDB for items with pagination."""
+        offset = int(getattr(self, "offset", 1) or 1)
+        limit = int(getattr(self, "limit", 10) or 10)
+        try:
+            client = CosmosClient(url=BASE_URL, credential=API_KEY)
+            database = client.get_database_client(self.database_name)
+            container = database.get_container_client(self.container_name)
+            query = "SELECT c.id, c.pageContent FROM c OFFSET @offset LIMIT @limit"
+            parameters = [
+                {"name": "@offset", "value": offset},
+                {"name": "@limit", "value": limit},
+            ]
+            items = list(container.query_items(query=query, parameters=parameters, enable_cross_partition_query=True))
+            return Data(value=items)
+        except (ValueError, TypeError, RuntimeError) as e:
+            return Data(value={"error": str(e)})

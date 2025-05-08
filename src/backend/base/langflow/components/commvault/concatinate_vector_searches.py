@@ -7,7 +7,7 @@ from langflow.schema import Data
 
 class CombineDataFromMultipleVectorSearches(Component):
     display_name = "Merge Data"
-    description = "Concatinate data from Multiple Vector Searches."
+    description = "Concatenate data from multiple vector searches."
     icon = "merge"
     name = "Merge Data"
 
@@ -26,24 +26,24 @@ class CombineDataFromMultipleVectorSearches(Component):
         Output(
             name="data",
             display_name="Data",
-            info="List of Input objects each with added Metadata",
+            info="List of input objects each with added metadata",
             method="process_output",
         ),
     ]
 
     def process_output(self) -> Data:
-        return Data(
-            value=[
-                {
-                    "page_content": result_dict["page_content"],
-                    "metadata": {
-                        key: result_dict["metadata"][key]
-                        for key in ["title", "selfLink"]
-                        if key in result_dict["metadata"]
-                    },
-                }
-                for item in self.input_value
-                if hasattr(item, "data") and "value" in item.data
-                for result_dict in item.data["value"]
-            ]
-        )
+        merged = []
+        for item in self.input_value or []:
+            values = getattr(item, "data", {}).get("value", [])
+            for result in values:
+                page_content = result.get("page_content")
+                metadata = result.get("metadata", {})
+                filtered_metadata = {k: metadata[k] for k in ("title", "selfLink") if k in metadata}
+                merged.append(
+                    {
+                        "page_content": page_content,
+                        "metadata": filtered_metadata,
+                    }
+                )
+        return Data(value=merged)
+

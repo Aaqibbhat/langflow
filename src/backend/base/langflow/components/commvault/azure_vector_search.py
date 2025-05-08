@@ -1,23 +1,26 @@
 #!/usr/bin/env python3
 import json
+import os
 
 import requests
+from dotenv import load_dotenv
 from pydantic import BaseModel, Field, ValidationError
 
 from langflow.custom import Component
 from langflow.io import DropdownInput, MessageTextInput, Output
 from langflow.schema import Data
 
-# Constants
-# BASE_URL = os.getenv("BASE_URL", "https://cvchatapp.commvault.com/api/v1/search")
-# API_KEY = os.getenv("API_KEY", "default_api_key")
-# TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", 10))
-# MAX_SEARCH_RESULTS = int(os.getenv("MAX_SEARCH_RESULTS", 10))
+load_dotenv()
 
-BASE_URL = "https://cvchatapp.commvault.com/api/v1/search"
-API_KEY = "SEE$dn^EU52nwiiaXfZ$C2BiD"
-TIMEOUT = 10
-MAX_SEARCH_RESULTS = 30
+# Environment variable loading and validation
+BASE_URL = os.getenv("BASE_URL")
+API_KEY = os.getenv("API_KEY")
+TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "10"))
+MAX_SEARCH_RESULTS = int(os.getenv("MAX_SEARCH_RESULTS", "10"))
+
+if not BASE_URL or not API_KEY:
+    msg = "BASE_URL and API_KEY must be set in the environment."
+    raise OSError(msg)
 
 
 class SemanticSearchRequest(BaseModel):
@@ -30,6 +33,8 @@ class SemanticSearchRequest(BaseModel):
 
 
 class AzureVectorSearch(Component):
+    """Custom Component to get data from Azure Vector documents."""
+
     display_name = "Azure Vector Search"
     description = "Custom Component to get data from Azure Vector documents"
     icon = "Azure"
@@ -78,7 +83,7 @@ class AzureVectorSearch(Component):
             name="top_k",
             value="5",
             display_name="Number of Search Results",
-            info="The maximum number of search results to return.",
+            info=f"The maximum number of search results to return (1-{MAX_SEARCH_RESULTS}).",
             required=True,
             field_type="str",
         ),
@@ -89,34 +94,46 @@ class AzureVectorSearch(Component):
     ]
 
     def build_output(self) -> Data:
+        """Build the output by performing a semantic search request.
+
+        Returns:
+            Data: The result of the search or an error message.
+        """
         # Validate and parse inputs
         try:
-            if not 1 <= int(self.top_k) <= MAX_SEARCH_RESULTS:
-                msg = "top_k must be between 1 and 30."
+            top_k = int(self.top_k)
+            if not 1 <= top_k <= MAX_SEARCH_RESULTS:
+                msg = f"top_k must be between 1 and {MAX_SEARCH_RESULTS}."
                 raise ValueError(msg)
-        except ValueError as e:
+        except (ValueError, TypeError) as e:
             self.status = f"Invalid input for top_k: {e!r}"
-            return Data(value=f"Invalid input for top_k: {e!r}")
+            return Data(value=self.status)
+
         try:
             search_params = SemanticSearchRequest(
                 collection_name=self.index_name,
                 search_query=self.search_text,
-                num_search_results=int(self.top_k),
+                num_search_results=top_k,
             )
         except ValidationError as e:
             self.status = f"Invalid search parameters: {e!r}"
-            return Data(value=f"Invalid search parameters: {e!r}")
+            return Data(value=self.status)
 
         payload = json.dumps(search_params.model_dump())
         headers = {"x-api-Key": API_KEY, "Content-Type": "application/json"}
 
         # Make the API request
         try:
-            response = requests.post(url=BASE_URL, headers=headers, data=payload, timeout=TIMEOUT)
+            response = requests.post(
+                url=BASE_URL,
+                headers=headers,
+                data=payload,
+                timeout=TIMEOUT,
+            )
             response.raise_for_status()
             documents = response.json()
             self.status = "Success" if documents else "No documents found"
             return Data(value=documents)
         except requests.exceptions.RequestException as e:
             self.status = f"Request failed: {e!r}"
-            return Data(value=f"Request failed: {e!r}")
+            return Data(value=self.status)

@@ -7,7 +7,7 @@ from langflow.schema import Data
 from langflow.schema.message import Message
 
 
-class ParseDataComponent(Component):
+class DataToMessage(Component):
     display_name = "Data to Message"
     description = "Convert Data objects into Messages using any {field_name} from input data."
     icon = "message-square"
@@ -49,9 +49,7 @@ class ParseDataComponent(Component):
 
     def _clean_args(self) -> tuple[list[Data], str, str]:
         data = self.data if isinstance(self.data, list) else [self.data]
-        template = self.template
-        sep = self.sep
-        return data, template, sep
+        return data, self.template, self.sep
 
     def parse_data(self) -> Message:
         data, template, sep = self._clean_args()
